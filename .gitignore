@@ -1,0 +1,10 @@
+.*
+*.log
+*.out
+*.o
+*.o.*
+*.ko
+*.ko.*
+Module.symvers
+*.mod.c
+*.order
