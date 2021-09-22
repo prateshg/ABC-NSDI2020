@@ -22,15 +22,15 @@ private:
     const static unsigned int PACKET_SIZE = 1504; /* default max TUN payload size */
 
     //Configurable parameters
-    uint32_t qdelay_ref_;
+    uint32_t qdelay_ref;
 
     //Internal parameters
-    double beta_;
+    double delta;
 
     //Status variables
     std::deque<uint32_t> dq_queue;
-    std::deque<uint32_t> real_dq_queue;
-    double credits;
+    std::deque<uint32_t> link_capacity_queue;
+    double tokens, token_limit;
 
     virtual const std::string & type( void ) const override
     {

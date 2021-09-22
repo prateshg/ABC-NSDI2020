@@ -8,14 +8,15 @@ using namespace std;
 
 CELLULARPacketQueue::CELLULARPacketQueue( const string & args )
   : DroppingPacketQueue(args),
-    qdelay_ref_ ( get_arg( args, "qdelay_ref" ) ),
-    beta_ ( get_arg( args,  "beta" ) / 100.0),
+    qdelay_ref ( get_arg( args, "qdelay_ref" ) ),
+    delta ( get_arg( args,  "delta" ) ),
     dq_queue ( {0} ),
-    real_dq_queue ( {0} ),
-    credits (5)
+    link_capacity_queue ( {0} ),
+    tokens (5),
+    token_limit (5)
 {
-  if ( qdelay_ref_ == 0 || beta_==0) {
-    throw runtime_error( "CELLULAR AQM queue must have qdelay_ref, beta" );
+  if ( qdelay_ref == 0 || delta == 0) {
+    throw runtime_error( "CELLULAR AQM queue must have qdelay_ref, delta" );
   }
 }
 
@@ -38,8 +39,8 @@ QueuedPacket CELLULARPacketQueue::dequeue( void )
   uint32_t now = timestamp();
 
   if (empty()) {
-    real_dq_queue.push_back(now);
-    credits += 0.49;
+    link_capacity_queue.push_back(now);
+    tokens += 0.49;
     return QueuedPacket("arbit", 0);
   }
 
@@ -49,32 +50,31 @@ QueuedPacket CELLULARPacketQueue::dequeue( void )
     return ret;
   }
 
-  while(now - real_dq_queue[0] > 20 && real_dq_queue.size() > 1 && now > real_dq_queue[1]) {
-    real_dq_queue.pop_front();
+  while(now - link_capacity_queue[0] > 20 && link_capacity_queue.size() > 1 && now > link_capacity_queue[1]) {
+    link_capacity_queue.pop_front();
   }
-  real_dq_queue.push_back(now);
+  link_capacity_queue.push_back(now);
   while(now - dq_queue[0] > 20 && dq_queue.size() > 1 && now > dq_queue[1]) {
     dq_queue.pop_front();
   }
   dq_queue.push_back(now);
 
-  double delta = 100.0;
 
-  double real_dq_rate_, observed_dq_rate_, target_rate;
-  real_dq_rate_ = (1.0 * (real_dq_queue.size()-1))/20.0;
+  double link_capacity_, observed_dq_rate_, target_rate_;
+  link_capacity_ = (1.0 * (link_capacity_queue.size()-1))/20.0;
   observed_dq_rate_ = (1.0 * (dq_queue.size()-1))/(20.0);
 
-  double current_qdelay = (size_packets() + 1) / real_dq_rate_;
-  target_rate = 0.98 * observed_dq_rate_ + beta_ * (real_dq_rate_ / delta) * min(0.0, (qdelay_ref_ - current_qdelay));
-  double credit_prob_ = (target_rate /  observed_dq_rate_) * 0.5;
+  double current_qdelay_ = (size_packets() + 1) / link_capacity_;
+  target_rate_ = 0.98 * observed_dq_rate_ + (link_capacity_ / delta) * min(0.0, (qdelay_ref - current_qdelay_));
+  double credit_prob_ = (target_rate_ /  observed_dq_rate_) * 0.5;
 
   credit_prob_ = max(0.0, credit_prob_);
   credit_prob_ = min(1.0, credit_prob_);
-  credits += credit_prob_;
+  tokens += credit_prob_;
 
-  if (credits > 1) {
+  if (tokens > 1) {
     if((iph->tos & IPTOS_ECN_MASK) != IPTOS_ECN_CE) {
-      credits -= 1;
+      tokens -= 1;
     }
   } else {
     if(ret.contents.length() > 4) {
@@ -84,9 +84,8 @@ QueuedPacket CELLULARPacketQueue::dequeue( void )
     }
   }
 
-  if(credits > 5) {
-    credits = 5;
-    //credits *= exp(2*((ewma_time-now)/delta));
+  if(tokens > token_limit) {
+    tokens = token_limit;
   }  
   return ret;
 }
